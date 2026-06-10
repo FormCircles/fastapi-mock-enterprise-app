@@ -92,8 +92,6 @@ Returns all available devices.
 ]
 ```
 
----
-
 ## Get Device By ID
 
 Returns a specific device.
@@ -316,6 +314,213 @@ When the application is running locally, FastAPI automatically generates OpenAPI
 
 The Swagger UI should be considered the authoritative source for request and response schemas.
 
+---
+
+# Example API Requests
+
+The following examples demonstrate common API interactions used by automated tests, CI pipelines, and local validation workflows.
+
+---
+
+# Authentication
+
+## Login
+
+```bash
+curl -X POST http://localhost:8080/api/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "password"
+  }'
+```
+
+Expected Response:
+
+```json
+{
+  "token": "mock-jwt-token"
+}
+```
+
+file:/C:/Users/josep/PycharmProjects/playwright-enterprise-test-framework/sut/FastAPIMockApp/README.md
+
+---
+
+# Device APIs
+
+## Get All Devices
+
+```bash
+curl http://localhost:8080/api/devices
+```
+
+---
+
+## Get Device By ID
+
+```bash
+curl http://localhost:8080/api/devices/1
+```
+
+---
+
+## Create Device
+
+```bash
+curl -X POST http://localhost:8080/api/devices \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Automation Device",
+    "status": "online"
+  }'
+```
+
+---
+
+## Update Device
+
+```bash
+curl -X PUT http://localhost:8080/api/devices/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Updated Automation Device",
+    "status": "offline"
+  }'
+```
+
+---
+
+## Delete Device
+
+```bash
+curl -X DELETE http://localhost:8080/api/devices/1
+```
+
+---
+
+# System APIs
+
+## Health Check
+
+Used by:
+
+* Docker HEALTHCHECK
+* GitHub Actions validation
+* Smoke tests
+* Container startup verification
+
+```bash
+curl http://localhost:8080/health
+```
+
+Expected Response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+## Version Information
+
+```bash
+curl http://localhost:8080/version
+```
+
+Expected Future Response:
+
+```json
+{
+  "application": "FastAPI Mock Application",
+  "version": "1.0.0",
+  "build_number": "123",
+  "build_date": "2026-06-10T12:00:00Z"
+}
+```
+
+---
+
+# Future Test Utility APIs
+
+## Reset Test Environment
+
+```bash
+curl -X POST http://localhost:8080/test/reset
+```
+
+Expected Future Response:
+
+```json
+{
+  "status": "success",
+  "message": "Test environment reset completed"
+}
+```
+
+---
+
+## Seed Test Data
+ ```bash
+curl -X POST http://localhost:8080/test/seed \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset": "default"
+  }'
+```
+
+Expected Future Response:
+
+```json
+{
+  "status": "success",
+  "dataset": "default",
+  "records_created": 25
+}
+```
+
+---
+
+# CI Validation Examples
+
+## Verify Application Health
+
+```bash
+curl --fail http://localhost:8080/health
+```
+
+Example GitHub Actions usage:
+
+```bash
+for i in {1..30}; do
+  curl --fail http://localhost:8080/health && break
+  sleep 2
+done
+```
+
+---
+
+# Docker Validation Examples
+
+## Verify Running Container
+
+```bash
+docker ps
+```
+
+## Check Container Health Status
+
+```bash
+docker inspect --format='{{.State.Health.Status}}' fastapi-mock-enterprise-app
+```
+
+## View Container Logs
+
+```bash
+docker logs fastapi-mock-enterprise-app
+```
 ---
 
 # Future API Categories
