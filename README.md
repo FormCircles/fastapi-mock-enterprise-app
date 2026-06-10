@@ -344,6 +344,240 @@ These items are documented for roadmap visibility only and do not represent acti
 * FCAPI-134 Create FastAPI API Contract Reference Page
 * FCAPI-135 Document Existing Auth and Device Endpoints
 
+---
+
+# Future Test Utility API Contracts
+
+## Purpose
+
+The following endpoints are planned for future implementation to support automated testing, environment preparation, and deterministic test execution.
+
+These endpoints are not currently implemented and are documented as proposed API contracts only.
+
+---
+
+# Version API
+
+## Get Application Version
+
+Returns build and version information for the running application.
+
+### Endpoint
+
+| Method | Endpoint |
+| ------ | -------- |
+| GET    | /version |
+
+### Successful Response
+
+**HTTP 200 OK**
+
+```json
+{
+  "application": "FastAPI Mock Application",
+  "version": "1.0.0",
+  "build_number": "123",
+  "build_date": "2026-06-10T12:00:00Z"
+}
+```
+
+### Usage
+
+Used by:
+
+* Deployment validation
+* Environment verification
+* CI/CD release testing
+* Smoke test verification
+
+### Notes
+
+Version information should remain read-only and should not require authentication.
+
+---
+
+# Test Reset API
+
+## Reset Test Environment
+
+Resets application data to a known baseline state.
+
+### Endpoint
+
+| Method | Endpoint    |
+| ------ | ----------- |
+| POST   | /test/reset |
+
+### Description
+
+Removes test-created data and restores the application to a predefined default state.
+
+This endpoint is intended for non-production environments only.
+
+### Request Body
+
+No request body required.
+
+### Successful Response
+
+**HTTP 200 OK**
+
+```json
+{
+  "status": "success",
+  "message": "Test environment reset completed"
+}
+```
+
+### Error Response
+
+**HTTP 500 Internal Server Error**
+
+```json
+{
+  "status": "error",
+  "message": "Reset operation failed"
+}
+```
+
+### Usage
+
+Used by:
+
+* Automated regression testing
+* Test environment preparation
+* CI pipeline execution
+* Local developer testing
+
+### Notes
+
+Future implementation should:
+
+* Clear test-generated records
+* Restore baseline seed data
+* Be disabled in production environments
+
+---
+
+# Test Seed API
+
+## Seed Test Data
+
+Creates predefined data required for automated test execution.
+
+### Endpoint
+
+| Method | Endpoint   |
+| ------ | ---------- |
+| POST   | /test/seed |
+
+### Request Body
+
+```json
+{
+  "dataset": "default"
+}
+```
+
+### Supported Datasets
+
+| Dataset    | Description                              |
+| ---------- | ---------------------------------------- |
+| default    | Standard automation test data            |
+| smoke      | Minimal data required for smoke tests    |
+| regression | Extended data set for regression testing |
+
+### Successful Response
+
+**HTTP 200 OK**
+
+```json
+{
+  "status": "success",
+  "dataset": "default",
+  "records_created": 25
+}
+```
+
+### Error Response
+
+**HTTP 400 Bad Request**
+
+```json
+{
+  "status": "error",
+  "message": "Unknown dataset"
+}
+```
+
+### Usage
+
+Used by:
+
+* Automated test setup
+* CI/CD execution
+* Regression test preparation
+* Local development validation
+
+### Notes
+
+Future implementation should:
+
+* Support multiple dataset profiles
+* Produce deterministic test data
+* Allow repeated execution without duplication
+* Be restricted to test environments
+
+---
+
+# Automation Workflow Example
+
+A future automation workflow may execute the following sequence:
+
+```text
+POST /test/reset
+
+↓
+
+POST /test/seed
+
+↓
+
+GET /health
+
+↓
+
+GET /version
+
+↓
+
+Execute API Tests
+
+↓
+
+Execute UI Tests
+```
+
+This workflow ensures all automated tests begin from a predictable application state.
+
+---
+
+# Security Considerations
+
+The following endpoints must never be exposed in production environments:
+
+* POST /test/reset
+* POST /test/seed
+
+Recommended controls:
+
+* Test environment only
+* Internal network access only
+* Authentication required
+* Environment-based feature flags
+
+These endpoints exist solely to support automated testing and environment preparation.
+
 
 ## Run FastAPI Mock App in Docker
 
