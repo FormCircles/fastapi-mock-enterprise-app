@@ -1,7 +1,11 @@
+from html import escape
+
 from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api.devices import DEVICES
+
+ALLOWED_DEVICE_STATUSES = {"online", "offline"}
 
 router = APIRouter()
 
@@ -28,60 +32,192 @@ def login(username: str = Form(...), password: str = Form(...)):
         return response
     return HTMLResponse("<h1>Login Failed</h1>", status_code=401)
 
-
 @router.get("/devices", response_class=HTMLResponse)
 def devices_page():
-    rows = ""
+    """Render the device management page."""
+    return _render_devices_page()
+
+@router.post("/devices", response_class=HTMLResponse)
+def create_device_ui(
+    name: str = Form(...),
+    status: str = Form(...),
+):
+    """Create a device through the browser interface."""
+    normalized_name = name.strip()
+
+    errors = _validate_device_form(
+        normalized_name,
+        status,
+    )
+
+    if errors:
+        return _render_devices_page(
+            errors=errors,
+            submitted_name=normalized_name,
+            submitted_status=status,
+        )
+
+    new_id = max(
+        (device["id"] for device in DEVICES),
+        default=0,
+    ) + 1
+
+    DEVICES.append(
+        {
+            "id": new_id,
+            "name": normalized_name,
+            "status": status,
+        }
+    )
+
+    return RedirectResponse(
+        url="/devices",
+        status_code=303,
+    )
+
+def _validate_device_form(
+    name: str,
+    device_status: str,
+) -> list[str]:
+    """Validate submitted device form values."""
+    errors: list[str] = []
+
+    normalized_name = name.strip()
+
+    if not normalized_name:
+        errors.append("Device name is required.")
+
+    if device_status not in ALLOWED_DEVICE_STATUSES:
+        errors.append("Status must be online or offline.")
+
+    if any(
+        device["name"].casefold() == normalized_name.casefold()
+        for device in DEVICES
+    ):
+        errors.append("A device with this name already exists.")
+
+    return errors
+
+def _render_devices_page(
+    *,
+    errors: list[str] | None = None,
+    submitted_name: str = "",
+    submitted_status: str = "online",
+) -> HTMLResponse:
+    """Render the device list and create-device form."""
+    errors = errors or []
+
+    error_html = ""
+
+    if errors:
+        error_items = "".join(
+            f"<li>{escape(message)}</li>"
+            for message in errors
+        )
+        error_html = f"""
+        <div role="alert" aria-label="Device form errors">
+          <p>Unable to create device.</p>
+          <ul>
+            {error_items}
+          </ul>
+        </div>
+        """
 
     if DEVICES:
-        for device in DEVICES:
-            rows += f"""
-            <tr
-              data-device-id="{device["id"]}"
-              aria-label="Device {device["name"]}"
-            >
-                <td>{device["id"]}</td>
-                <td>{device["name"]}</td>
-                <td>{device["status"]}</td>
+        rows = "".join(
+            f"""
+            <tr data-device-id="{device["id"]}">
+              <td>{device["id"]}</td>
+              <td>{escape(device["name"])}</td>
+              <td>{escape(device["status"])}</td>
             </tr>
             """
-    else:
-        rows = """
-        <tr>
-            <td colspan="3">
-                <span role="status">
-                    No devices found.
-                </span>
-            </td>
-        </tr>
+            for device in DEVICES
+        )
+
+        device_list_html = f"""
+        <table role="table" aria-label="Device list">
+          <thead>
+            <tr>
+              <th scope="col">ID</th>
+              <th scope="col">Name</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows}
+          </tbody>
+        </table>
         """
+    else:
+        device_list_html = """
+        <p role="status">No devices found.</p>
+        """
+
+    online_selected = (
+        " selected"
+        if submitted_status == "online"
+        else ""
+    )
+    offline_selected = (
+        " selected"
+        if submitted_status == "offline"
+        else ""
+    )
 
     return HTMLResponse(
         f"""
-        <html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <title>Devices</title>
+          </head>
           <body>
+            <main>
+              <h1>Devices</h1>
 
-            <h1>Devices</h1>
+              {error_html}
 
-            <table
-              role="table"
-              aria-label="Device list"
-            >
+              <section aria-labelledby="create-device-heading">
+                <h2 id="create-device-heading">Create Device</h2>
 
-              <thead>
-                <tr>
-                  <th scope="col">ID</th>
-                  <th scope="col">Name</th>
-                  <th scope="col">Status</th>
-                </tr>
-              </thead>
+                <form method="post" action="/devices">
+                  <div>
+                    <label for="device-name">Device name</label>
+                    <input
+                      id="device-name"
+                      name="name"
+                      type="text"
+                      value="{escape(submitted_name)}"
+                      required
+                    />
+                  </div>
 
-              <tbody>
-                {rows}
-              </tbody>
+                  <div>
+                    <label for="device-status">Status</label>
+                    <select
+                      id="device-status"
+                      name="status"
+                      required
+                    >
+                      <option value="online"{online_selected}>
+                        Online
+                      </option>
+                      <option value="offline"{offline_selected}>
+                        Offline
+                      </option>
+                    </select>
+                  </div>
 
-            </table>
+                  <button type="submit">Create Device</button>
+                </form>
+              </section>
 
+              <section aria-labelledby="device-list-heading">
+                <h2 id="device-list-heading">Device List</h2>
+                {device_list_html}
+              </section>
+            </main>
           </body>
         </html>
         """
