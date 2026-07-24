@@ -131,25 +131,12 @@ def test_create_device_rejects_invalid_status():
     assert 'role="alert"' in response.text
     assert "Status must be online or offline." in response.text
 
-def _render_devices_page(
-    *,
-    errors: list[str] | None = None,
-    submitted_name: str = "",
-    submitted_status: str = "online",
-    status_code: int = 200,
-) -> HTMLResponse:
-    return HTMLResponse(
-        content=...,
-        status_code=status_code,
-)
-
 def test_devices_page_displays_edit_action():
     response = client.get("/devices")
 
     assert response.status_code == 200
     assert "/devices/1/edit" in response.text
-    assert 'aria-label="Edit Router-01"' in response.text
-
+    assert "Edit" in response.text
 
 def test_edit_device_page_is_populated():
     response = client.get("/devices/1/edit")
@@ -255,4 +242,64 @@ def test_edit_missing_device_returns_404():
     assert "Device Not Found" in response.text
     assert 'role="alert"' in response.text
 
+def test_devices_page_displays_accessible_delete_action():
+    response = client.get("/devices")
+
+    assert response.status_code == 200
+    assert "/devices/1/delete" in response.text
+    assert 'aria-label="Delete Router-01"' in response.text
+    assert 'data-device-id="1"' in response.text
+
+def test_delete_device_through_ui():
+    DEVICES.append(
+        {
+            "id": 99,
+            "name": "Delete-Me",
+            "status": "offline",
+        }
+    )
+
+    response = client.post(
+        "/devices/99/delete",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert (
+        response.headers["location"]
+        == "/devices?success=device-deleted"
+    )
+
+    assert not any(
+        device["id"] == 99
+        for device in DEVICES
+    )
+
+def test_deleted_device_is_removed_from_devices_page():
+    DEVICES.append(
+        {
+            "id": 98,
+            "name": "Remove-From-List",
+            "status": "online",
+        }
+    )
+
+    response = client.post(
+        "/devices/98/delete",
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Remove-From-List" not in response.text
+    assert "Device deleted successfully." in response.text
+    assert 'role="status"' in response.text
+
+def test_delete_missing_device_returns_404():
+    response = client.post(
+        "/devices/99999/delete",
+    )
+
+    assert response.status_code == 404
+    assert "Device Not Found" in response.text
+    assert 'role="alert"' in response.text
 
