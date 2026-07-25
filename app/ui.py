@@ -131,8 +131,8 @@ def devices_page(request: Request) -> HTMLResponse:
 
 @router.post("/devices", response_class=HTMLResponse)
 def create_device_ui(
-    name: str = Form(...),
-    status: str = Form(...),
+    name: str = Form(""),
+    status: str = Form(""),
 ) -> Response:
     """Create a device through the browser interface."""
     normalized_name = name.strip()
@@ -189,8 +189,8 @@ def edit_device_page(device_id: int) -> HTMLResponse:
 )
 def update_device_ui(
     device_id: int,
-    name: str = Form(...),
-    status: str = Form(...),
+    name: str = Form(""),
+    status: str = Form(""),
 ) -> Response:
     """Update a device through the browser interface."""
     device = _find_device(device_id)
