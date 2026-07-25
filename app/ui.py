@@ -1,56 +1,139 @@
+"""Server-rendered browser routes for the FastAPI Mock App."""
+
 from html import escape
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from app.api.devices import DEVICES
 
+
 ALLOWED_DEVICE_STATUSES = {"online", "offline"}
+
+SUCCESS_MESSAGES = {
+    "device-created": "Device created successfully.",
+    "device-updated": "Device updated successfully.",
+    "device-deleted": "Device deleted successfully.",
+}
 
 router = APIRouter()
 
+
 @router.get("/", response_class=HTMLResponse)
-def login_page():
-    return """
-    <html>
-      <body>
-        <h1>Login</h1>
-        <form method="post" action="/login">
-          <input name="username" type="text" />
-          <input name="password" type="password" />
-          <button type="submit">Login</button>
-        </form>
-      </body>
-    </html>
-    """
+def login_page() -> HTMLResponse:
+    """Render the accessible login page."""
+    return HTMLResponse(
+        """
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <title>Login</title>
+          </head>
+          <body>
+            <main>
+              <h1>Login</h1>
+
+              <form method="post" action="/login">
+                <div>
+                  <label for="login-username">Username</label>
+                  <input
+                    id="login-username"
+                    name="username"
+                    type="text"
+                    autocomplete="username"
+                    data-testid="login-username"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label for="login-password">Password</label>
+                  <input
+                    id="login-password"
+                    name="password"
+                    type="password"
+                    autocomplete="current-password"
+                    data-testid="login-password"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  data-testid="login-submit"
+                >
+                  Login
+                </button>
+              </form>
+            </main>
+          </body>
+        </html>
+        """
+    )
+
 
 @router.post("/login")
-def login(username: str = Form(...), password: str = Form(...)):
+def login(
+    username: str = Form(...),
+    password: str = Form(...),
+) -> Response:
+    """Authenticate the browser user."""
     if username == "admin" and password == "password":
-        response = RedirectResponse(url="/devices", status_code=303)
-        response.set_cookie(key="token", value="fake-jwt-token")
+        response = RedirectResponse(
+            url="/devices",
+            status_code=303,
+        )
+        response.set_cookie(
+            key="token",
+            value="fake-jwt-token",
+            httponly=True,
+            samesite="lax",
+        )
         return response
-    return HTMLResponse("<h1>Login Failed</h1>", status_code=401)
+
+    return HTMLResponse(
+        """
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <title>Login Failed</title>
+          </head>
+          <body>
+            <main>
+              <h1>Login Failed</h1>
+
+              <div
+                role="alert"
+                data-testid="login-error"
+              >
+                Invalid username or password.
+              </div>
+
+              <a href="/">Return to login</a>
+            </main>
+          </body>
+        </html>
+        """,
+        status_code=401,
+    )
+
 
 @router.get("/devices", response_class=HTMLResponse)
-def devices_page(request: Request):
-    """Render the device management page."""
-    success = request.query_params.get("success")
-
-    success_message = None
-
-    if success == "device-deleted":
-        success_message = "Device deleted successfully."
+def devices_page(request: Request) -> HTMLResponse:
+    """Render the device-management page."""
+    success_key = request.query_params.get("success")
+    success_message = SUCCESS_MESSAGES.get(success_key)
 
     return _render_devices_page(
         success_message=success_message,
     )
 
+
 @router.post("/devices", response_class=HTMLResponse)
 def create_device_ui(
     name: str = Form(...),
     status: str = Form(...),
-):
+) -> Response:
     """Create a device through the browser interface."""
     normalized_name = name.strip()
 
@@ -64,10 +147,11 @@ def create_device_ui(
             errors=errors,
             submitted_name=normalized_name,
             submitted_status=status,
+            status_code=422,
         )
 
     new_id = max(
-        (device["id"] for device in DEVICES),
+        (int(device["id"]) for device in DEVICES),
         default=0,
     ) + 1
 
@@ -80,17 +164,119 @@ def create_device_ui(
     )
 
     return RedirectResponse(
-        url="/devices",
+        url="/devices?success=device-created",
         status_code=303,
     )
+
+
+@router.get(
+    "/devices/{device_id}/edit",
+    response_class=HTMLResponse,
+)
+def edit_device_page(device_id: int) -> HTMLResponse:
+    """Render a populated edit form for a device."""
+    device = _find_device(device_id)
+
+    if device is None:
+        return _render_device_not_found()
+
+    return _render_edit_device_page(device)
+
+
+@router.post(
+    "/devices/{device_id}/edit",
+    response_class=HTMLResponse,
+)
+def update_device_ui(
+    device_id: int,
+    name: str = Form(...),
+    status: str = Form(...),
+) -> Response:
+    """Update a device through the browser interface."""
+    device = _find_device(device_id)
+
+    if device is None:
+        return _render_device_not_found()
+
+    normalized_name = name.strip()
+
+    errors = _validate_device_form(
+        normalized_name,
+        status,
+        current_device_id=device_id,
+    )
+
+    if errors:
+        return _render_edit_device_page(
+            device,
+            errors=errors,
+            submitted_name=normalized_name,
+            submitted_status=status,
+            status_code=422,
+        )
+
+    device["name"] = normalized_name
+    device["status"] = status
+
+    return RedirectResponse(
+        url="/devices?success=device-updated",
+        status_code=303,
+    )
+
+
+@router.post("/devices/{device_id}/delete")
+def delete_device_ui(
+    device_id: int,
+) -> Response:
+    """Delete a device through the browser interface."""
+    device = _find_device(device_id)
+
+    if device is None:
+        return _render_device_not_found()
+
+    try:
+        DEVICES.remove(device)
+    except ValueError:
+        return HTMLResponse(
+            """
+            <html lang="en">
+              <head>
+                <meta charset="utf-8" />
+                <title>Delete Device Error</title>
+              </head>
+              <body>
+                <main>
+                  <h1>Unable to Delete Device</h1>
+
+                  <div
+                    role="alert"
+                    data-testid="device-delete-error"
+                  >
+                    The device could not be deleted.
+                  </div>
+
+                  <a href="/devices">Return to devices</a>
+                </main>
+              </body>
+            </html>
+            """,
+            status_code=409,
+        )
+
+    return RedirectResponse(
+        url="/devices?success=device-deleted",
+        status_code=303,
+    )
+
 
 def _validate_device_form(
     name: str,
     device_status: str,
+    *,
+    current_device_id: int | None = None,
 ) -> list[str]:
-    """Validate submitted device form values."""
+    """Validate submitted create or update values."""
     errors: list[str] = []
-
     normalized_name = name.strip()
 
     if not normalized_name:
@@ -99,13 +285,31 @@ def _validate_device_form(
     if device_status not in ALLOWED_DEVICE_STATUSES:
         errors.append("Status must be online or offline.")
 
-    if any(
-        device["name"].casefold() == normalized_name.casefold()
+    duplicate_exists = any(
+        str(device["name"]).casefold() == normalized_name.casefold()
+        and int(device["id"]) != current_device_id
         for device in DEVICES
-    ):
+    )
+
+    if normalized_name and duplicate_exists:
         errors.append("A device with this name already exists.")
 
     return errors
+
+
+def _find_device(
+    device_id: int,
+) -> dict[str, object] | None:
+    """Return a device by stable ID."""
+    return next(
+        (
+            device
+            for device in DEVICES
+            if int(device["id"]) == device_id
+        ),
+        None,
+    )
+
 
 def _render_devices_page(
     *,
@@ -115,13 +319,20 @@ def _render_devices_page(
     success_message: str | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
-    """Render the device list and create-device form."""
+    """Render the device list and accessible create form."""
     errors = errors or []
 
     success_html = ""
 
     if success_message:
-        success_html = f'<div role="status">{escape(success_message)}</div>'
+        success_html = f"""
+        <div
+          role="status"
+          data-testid="operation-success"
+        >
+          {escape(success_message)}
+        </div>
+        """
 
     error_html = ""
 
@@ -131,7 +342,11 @@ def _render_devices_page(
             for message in errors
         )
         error_html = f"""
-        <div role="alert" aria-label="Device form errors">
+        <div
+          role="alert"
+          aria-label="Device form errors"
+          data-testid="device-form-error"
+        >
           <p>Unable to create device.</p>
           <ul>
             {error_items}
@@ -141,41 +356,16 @@ def _render_devices_page(
 
     if DEVICES:
         rows = "".join(
-          f"""
-          <tr data-device-id="{device["id"]}">
-            <td>{device["id"]}</td>
-            <td>{escape(device["name"])}</td>
-            <td>{escape(device["status"])}</td>
-            <td>
-              <form
-                method="get"
-                action="/devices/{device["id"]}/edit"
-              >
-                <button type="submit">Edit</button>
-              </form>
-
-              <form
-                method="post"
-                action="/devices/{device["id"]}/delete"
-                onsubmit="return confirm(
-                  'Delete {escape(device["name"])}?'
-                )"
-              >
-                <button
-                  type="submit"
-                  aria-label="Delete {escape(device["name"])}"
-                >
-                  Delete
-                </button>
-              </form>
-            </td>
-          </tr>
-          """
-          for device in DEVICES
-      )
+            _render_device_row(device)
+            for device in DEVICES
+        )
 
         device_list_html = f"""
-        <table role="table" aria-label="Device list">
+        <table
+          role="table"
+          aria-label="Device list"
+          data-testid="device-table"
+        >
           <thead>
             <tr>
               <th scope="col">ID</th>
@@ -191,7 +381,12 @@ def _render_devices_page(
         """
     else:
         device_list_html = """
-        <p role="status">No devices found.</p>
+        <p
+          role="status"
+          data-testid="device-empty-state"
+        >
+          No devices found.
+        </p>
         """
 
     online_selected = (
@@ -206,7 +401,7 @@ def _render_devices_page(
     )
 
     return HTMLResponse(
-        f"""
+        content=f"""
         <html lang="en">
           <head>
             <meta charset="utf-8" />
@@ -217,7 +412,6 @@ def _render_devices_page(
               <h1>Devices</h1>
 
               {success_html}
-
               {error_html}
 
               <section aria-labelledby="create-device-heading">
@@ -231,6 +425,7 @@ def _render_devices_page(
                       name="name"
                       type="text"
                       value="{escape(submitted_name)}"
+                      data-testid="create-device-name"
                       required
                     />
                   </div>
@@ -240,6 +435,7 @@ def _render_devices_page(
                     <select
                       id="device-status"
                       name="status"
+                      data-testid="create-device-status"
                       required
                     >
                       <option value="online"{online_selected}>
@@ -251,7 +447,12 @@ def _render_devices_page(
                     </select>
                   </div>
 
-                  <button type="submit">Create Device</button>
+                  <button
+                    type="submit"
+                    data-testid="create-device-submit"
+                  >
+                    Create Device
+                  </button>
                 </form>
               </section>
 
@@ -262,46 +463,64 @@ def _render_devices_page(
             </main>
           </body>
         </html>
-        """
+        """,
+        status_code=status_code,
     )
 
-def _find_device(device_id: int) -> dict[str, object] | None:
-    """Return a device by ID or None when it does not exist."""
-    return next(
-        (
-            device
-            for device in DEVICES
-            if device["id"] == device_id
-        ),
-        None,
-    )
 
-def _validate_device_form(
-    name: str,
-    device_status: str,
-    *,
-    current_device_id: int | None = None,
-) -> list[str]:
-    """Validate submitted device form values."""
-    errors: list[str] = []
-    normalized_name = name.strip()
+def _render_device_row(
+    device: dict[str, object],
+) -> str:
+    """Render one device row with stable automation selectors."""
+    device_id = int(device["id"])
+    device_name = escape(str(device["name"]))
+    device_status = escape(str(device["status"]))
 
-    if not normalized_name:
-        errors.append("Device name is required.")
+    return f"""
+    <tr
+      data-device-id="{device_id}"
+      data-testid="device-row-{device_id}"
+    >
+      <td data-testid="device-id-{device_id}">
+        {device_id}
+      </td>
+      <td data-testid="device-name-{device_id}">
+        {device_name}
+      </td>
+      <td data-testid="device-status-{device_id}">
+        {device_status}
+      </td>
+      <td>
+        <form
+          method="get"
+          action="/devices/{device_id}/edit"
+        >
+          <button
+            type="submit"
+            aria-label="Edit {device_name}"
+            data-testid="edit-device-{device_id}"
+          >
+            Edit
+          </button>
+        </form>
 
-    if device_status not in ALLOWED_DEVICE_STATUSES:
-        errors.append("Status must be online or offline.")
+        <form
+          method="post"
+          action="/devices/{device_id}/delete"
+          onsubmit="return confirm('Delete {device_name}?')"
+        >
+          <button
+            type="submit"
+            aria-label="Delete {device_name}"
+            data-testid="delete-device-{device_id}"
+          >
+            Delete
+          </button>
+        </form>
+      </td>
+    </tr>
+    """
 
-    duplicate_exists = any(
-        device["name"].casefold() == normalized_name.casefold()
-        and device["id"] != current_device_id
-        for device in DEVICES
-    )
-
-    if normalized_name and duplicate_exists:
-        errors.append("A device with this name already exists.")
-
-    return errors
 
 def _render_edit_device_page(
     device: dict[str, object],
@@ -311,7 +530,7 @@ def _render_edit_device_page(
     submitted_status: str | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
-    """Render the populated device edit form."""
+    """Render the accessible, populated device edit form."""
     errors = errors or []
 
     current_name = (
@@ -332,9 +551,12 @@ def _render_edit_device_page(
             f"<li>{escape(message)}</li>"
             for message in errors
         )
-
         error_html = f"""
-        <div role="alert" aria-label="Device update errors">
+        <div
+          role="alert"
+          aria-label="Device update errors"
+          data-testid="device-update-error"
+        >
           <p>Unable to update device.</p>
           <ul>
             {error_items}
@@ -352,7 +574,6 @@ def _render_edit_device_page(
         if current_status == "offline"
         else ""
     )
-
     device_id = int(device["id"])
 
     return HTMLResponse(
@@ -381,6 +602,7 @@ def _render_edit_device_page(
                     name="name"
                     type="text"
                     value="{escape(current_name)}"
+                    data-testid="edit-device-name"
                     required
                   />
                 </div>
@@ -392,6 +614,7 @@ def _render_edit_device_page(
                   <select
                     id="edit-device-status"
                     name="status"
+                    data-testid="edit-device-status"
                     required
                   >
                     <option value="online"{online_selected}>
@@ -403,8 +626,19 @@ def _render_edit_device_page(
                   </select>
                 </div>
 
-                <button type="submit">Save</button>
-                <a href="/devices">Cancel</a>
+                <button
+                  type="submit"
+                  data-testid="edit-device-save"
+                >
+                  Save
+                </button>
+
+                <a
+                  href="/devices"
+                  data-testid="edit-device-cancel"
+                >
+                  Cancel
+                </a>
               </form>
             </main>
           </body>
@@ -413,133 +647,11 @@ def _render_edit_device_page(
         status_code=status_code,
     )
 
-@router.get(
-    "/devices/{device_id}/edit",
-    response_class=HTMLResponse,
-)
-def edit_device_page(device_id: int):
-    """Render a populated edit form for a device."""
-    device = _find_device(device_id)
-
-    if device is None:
-        return HTMLResponse(
-            """
-            <html lang="en">
-              <body>
-                <main>
-                  <h1>Device Not Found</h1>
-                  <div role="alert">
-                    The requested device does not exist.
-                  </div>
-                  <a href="/devices">Return to devices</a>
-                </main>
-              </body>
-            </html>
-            """,
-            status_code=404,
-        )
-
-    return _render_edit_device_page(device)
-
-@router.post(
-    "/devices/{device_id}/edit",
-    response_class=HTMLResponse,
-)
-def update_device_ui(
-    device_id: int,
-    name: str = Form(...),
-    status: str = Form(...),
-):
-    """Update a device through the browser interface."""
-    device = _find_device(device_id)
-
-    if device is None:
-        return HTMLResponse(
-            """
-            <html lang="en">
-              <body>
-                <main>
-                  <h1>Device Not Found</h1>
-                  <div role="alert">
-                    The requested device does not exist.
-                  </div>
-                  <a href="/devices">Return to devices</a>
-                </main>
-              </body>
-            </html>
-            """,
-            status_code=404,
-        )
-
-    normalized_name = name.strip()
-
-    errors = _validate_device_form(
-        normalized_name,
-        status,
-        current_device_id=device_id,
-    )
-
-    if errors:
-        return _render_edit_device_page(
-            device,
-            errors=errors,
-            submitted_name=normalized_name,
-            submitted_status=status,
-            status_code=422,
-        )
-
-    device["name"] = normalized_name
-    device["status"] = status
-
-    return RedirectResponse(
-        url="/devices",
-        status_code=303,
-    )
-
-@router.post("/devices/{device_id}/delete")
-def delete_device_ui(device_id: int):
-    """Delete a device through the browser interface."""
-    device = _find_device(device_id)
-
-    if device is None:
-        return _render_device_not_found()
-
-    try:
-        DEVICES.remove(device)
-    except ValueError:
-        return HTMLResponse(
-            content="""
-            <html lang="en">
-              <head>
-                <meta charset="utf-8" />
-                <title>Delete Device Error</title>
-              </head>
-              <body>
-                <main>
-                  <h1>Unable to Delete Device</h1>
-
-                  <div role="alert">
-                    The device could not be deleted.
-                  </div>
-
-                  <a href="/devices">Return to devices</a>
-                </main>
-              </body>
-            </html>
-            """,
-            status_code=409,
-        )
-
-    return RedirectResponse(
-        url="/devices?success=device-deleted",
-        status_code=303,
-    )
-
 
 def _render_device_not_found() -> HTMLResponse:
-    """Render a safe device-not-found response."""
+    """Render a safe and accessible missing-device response."""
     return HTMLResponse(
-        content="""
+        """
         <html lang="en">
           <head>
             <meta charset="utf-8" />
@@ -549,7 +661,10 @@ def _render_device_not_found() -> HTMLResponse:
             <main>
               <h1>Device Not Found</h1>
 
-              <div role="alert">
+              <div
+                role="alert"
+                data-testid="device-not-found"
+              >
                 The requested device does not exist.
               </div>
 
@@ -560,6 +675,3 @@ def _render_device_not_found() -> HTMLResponse:
         """,
         status_code=404,
     )
-
-
-
