@@ -20,6 +20,7 @@ router = APIRouter()
 
 
 @router.get("/", response_class=HTMLResponse)
+@router.get("/login", response_class=HTMLResponse)
 def login_page() -> HTMLResponse:
     """Render the accessible login page."""
     return HTMLResponse(
@@ -109,7 +110,7 @@ def login(
                 Invalid username or password.
               </div>
 
-              <a href="/">Return to login</a>
+              <a href="/login">Return to login</a>
             </main>
           </body>
         </html>
